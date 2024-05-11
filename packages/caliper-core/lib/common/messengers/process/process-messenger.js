@@ -87,8 +87,12 @@ class ProcessMessenger extends MessengerInterface {
         // Convert to string and send
         const msg = message.stringify();
         for (const proc of this.processes) {
-            proc.send(msg);
-            Logger.debug(`Process "${this.getUUID()}" sent message: ${msg}`);
+            try {
+                proc.send(msg);
+                Logger.warn(`Process "${this.getUUID()}" sent message: ${msg}`);
+            } catch (error) {
+                Logger.error(`Error sending message: ${error}`);
+            }
         }
     }
 }
