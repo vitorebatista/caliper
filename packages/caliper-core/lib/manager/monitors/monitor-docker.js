@@ -23,6 +23,7 @@ const ChartBuilder = require('../charts/chart-builder');
 const os = require('os');
 const URL = require('url');
 const Docker = require('dockerode');
+const fs = require('fs');
 
 /**
  * Resource monitor for local/remote docker containers
@@ -72,7 +73,7 @@ class MonitorDocker extends MonitorInterface {
                     let remote = URL.parse(container, true);
                     if (remote.hostname === null || remote.port === null || remote.pathname === '/') {
                         Logger.warn('unrecognized host, ' + container);
-                    } else if (filterName.hasOwnProperty(remote.hostname)) {
+                    } else if (filterName.remote.hasOwnProperty(remote.hostname)) {
                         filterName[remote.hostname].containers.push(remote.pathname);
                     } else {
                         filterName[remote.hostname] = { port: remote.port, containers: [remote.pathname] };
@@ -223,12 +224,63 @@ class MonitorDocker extends MonitorInterface {
                     //Logger.debug(diskR+'  W: '+diskW);
                     this.stats[id].blockIO_rx.push(diskR);
                     this.stats[id].blockIO_wx.push(diskW);
+
+                    let fullData = this.stats[id];
+                    fullData.time = this.stats.time;
+                    fullData.name = this.containers[i].name;
+                    fullData.key = this.containers[i].id;
+                    this.appendMetricsFile(fullData);
+
                 }
                 this.isReading = false;
             } catch (error) {
                 Logger.error(`Error reading monitor statistics: ${error}`);
                 this.isReading = false;
             }
+        }
+    }
+
+    /**
+     * Create the metric file for the container that is running
+     * @param {string} testLabel the current test label
+     * @async
+     */
+    async createMetricsFile(testLabel) {
+        const keys = ['time', 'key', 'name', 'mem_usage', 'mem_percent', 'cpu_percent', 'netIO_rx', 'netIO_tx', 'blockIO_rx', 'blockIO_wx'];
+        const data = keys.join(',') + '\n';
+
+        // Save CSV to file
+        if (!fs.existsSync('metrics')) {
+            fs.mkdirSync('metrics');
+        }
+        fs.writeFileSync('metrics/metrics-'+testLabel.replace('/','')+'-full.csv', data);
+    }
+
+    /**
+     * Append the data to the metric file
+     * @param {string} data the line to be added to the file
+     * @async
+     */
+    async appendMetricsFile(data){
+        const keys = ['time', 'key', 'name', 'mem_usage', 'mem_percent', 'cpu_percent', 'netIO_rx', 'netIO_tx', 'blockIO_rx', 'blockIO_wx'];
+        let csv = '';
+
+        const dateTime = new Date(data.time.at(-1) * 1000); // Convert timestamp to milliseconds
+        const rowData = keys.map(key => {
+            if (key === 'time') {
+                return dateTime.toISOString(); // Convert to ISO format
+            } else if (key === 'key' || key === 'name') {
+                return data[key];
+            } else {
+                return data[key].at(-1);
+            }
+        });
+        csv += rowData.join(',') + '\n';
+
+        try {
+            fs.appendFile('metrics/metrics-'+data.name.replace('/','')+'-full.csv', csv, (err) => err && Logger.error(err));
+        } catch (error) {
+            Logger.error(`Got an error trying to append data: ${error.message}`);
         }
     }
 
@@ -240,6 +292,9 @@ class MonitorDocker extends MonitorInterface {
         // Conditionally build monitored containers, these are persisted between rounds and restart action
         if (!this.containers || this.containers.length === 0) {
             await this.findContainers();
+        }
+        for (const container of this.containers) {
+            this.createMetricsFile(container.name);
         }
         // Read stats immediately, then kick off monitor refresh at interval
         await this.readContainerStats();
