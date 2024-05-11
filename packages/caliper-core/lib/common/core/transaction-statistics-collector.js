@@ -53,6 +53,7 @@ class TransactionStatisticsCollector {
                 lastFinishTime: 0
             },
             latency: {
+                value: 0,
                 successful: {
                     min: Number.MAX_SAFE_INTEGER, // best default value for min
                     max: 0,
@@ -89,6 +90,7 @@ class TransactionStatisticsCollector {
             Math.max(finishTime, this.stats.timestamps.lastFinishTime);
 
         let latency = finishTime - createTime;
+        this.stats.latency.value = latency;
 
         // separate stats for successful and failed TXs
         if (txResult.IsCommitted()) {
@@ -230,6 +232,14 @@ class TransactionStatisticsCollector {
     }
 
     /**
+     * Get the current latency for the TXs.
+     * @return {number} The current latency for the TXs.
+     */
+    getCurrentLatency() {
+        return this.stats.latency.value;
+    }
+
+    /**
      * Get the longest latency for successful TXs.
      * @return {number} The longest latency for successful TXs.
      */
@@ -315,6 +325,7 @@ class TransactionStatisticsCollector {
         const sumStats = (selector) => currentStats.map(stat => selector(stat)).reduce(sum, 0);
         const minStat = (selector) => Math.min(...currentStats.map(stat => selector(stat)));
         const maxStat = (selector) => Math.max(...currentStats.map(stat => selector(stat)));
+        const same = (selector) => selector;
 
         let mergedStats = {
             metadata: {
@@ -333,9 +344,12 @@ class TransactionStatisticsCollector {
                 firstCreateTime: minStat(stat => stat.timestamps.firstCreateTime),
                 lastCreateTime: maxStat(stat => stat.timestamps.lastCreateTime),
                 firstFinishTime: minStat(stat => stat.timestamps.firstFinishTime),
-                lastFinishTime: maxStat(stat => stat.timestamps.lastFinishTime)
+                lastFinishTime: maxStat(stat => stat.timestamps.lastFinishTime),
+                sucessfulTime: same(stat => stat.timestamps.sucessfulTime),
+                failedTime: same(stat => stat.timestamps.failedTime)
             },
             latency: {
+                value: minStat(stat => stat.latency.value),
                 successful: {
                     min: minStat(stat => stat.latency.successful.min),
                     max: maxStat(stat => stat.latency.successful.max),
