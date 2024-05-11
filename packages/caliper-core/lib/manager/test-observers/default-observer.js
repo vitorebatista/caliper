@@ -20,6 +20,7 @@ const TransactionStatisticsCollector = require('../../common/core/transaction-st
 const Utils = require('../../common/utils/caliper-utils');
 const ConfigUtil = require('../../common/config/config-util');
 const Logger = Utils.getLogger('default-observer');
+const fs = require('fs');
 
 /**
  * DefaultObserver class used to observe test statistics via terminal
@@ -33,7 +34,8 @@ class DefaultObserver extends TestObserverInterface {
         super();
 
         // set the observer interval
-        this.observeInterval = ConfigUtil.get(ConfigUtil.keys.Progress.Reporting.Interval);
+        //@TODO check where this value can be updated
+        this.observeInterval = 1000; //ConfigUtil.get(ConfigUtil.keys.Progress.Reporting.Interval);
         Logger.info(`Observer interval set to ${this.observeInterval} milliseconds`);
         this.observeIntervalObject = null;
         this.updateTail = 0;
@@ -50,7 +52,8 @@ class DefaultObserver extends TestObserverInterface {
                 x: [],
                 max: [0],
                 min: [0],
-                avg: [0]
+                avg: [0],
+                value: [0]
             },
             summary: {
                 txSub: 0,
@@ -79,11 +82,13 @@ class DefaultObserver extends TestObserverInterface {
      * @param {*} max the maximum
      * @param {*} min the minimum
      * @param {*} avg the average
+     * @param {*} value the current value
      */
-    addLatency(max, min, avg) {
+    addLatency(max, min, avg, value) {
         this.testData.latency.max.push(max);
         this.testData.latency.min.push(min);
         this.testData.latency.avg.push(avg);
+        this.testData.latency.value.push(value);
         if (this.testData.latency.x.length < this.testData.latency.max.length) {
             let last = this.testData.latency.x[this.testData.latency.x.length - 1];
             this.testData.latency.x.push(last + this.observeInterval);
@@ -93,6 +98,7 @@ class DefaultObserver extends TestObserverInterface {
             this.testData.latency.min.shift();
             this.testData.latency.avg.shift();
             this.testData.latency.x.shift();
+            this.testData.latency.value.shift();
         }
     }
 
@@ -122,9 +128,9 @@ class DefaultObserver extends TestObserverInterface {
         if (updates.length === 0 || Object.entries(updates[0]).length === 0) {
             // Nothing to update with, set zero
             this.setThroughput(0,0,0);
-            this.addLatency(0,0,0);
+            this.addLatency(0,0,0,0);
         } else {
-            let deMax = -1, deMin = -1, deAvg = 0;
+            let deMax = -1, deMin = -1, deAvg = 0, curLatency = 0;
 
             // Updates may come from multiple workers, and may get more than one update per worker in an interval
             // - We need to sum the transaction counts, and evaluate the min/max/average of latencies
@@ -150,7 +156,7 @@ class DefaultObserver extends TestObserverInterface {
             if (txnCollectionMap.size > 0) {
                 let txnCollectorArray = Array.from( txnCollectionMap.values() );
                 const txnCollection = TransactionStatisticsCollector.mergeCollectorResults(txnCollectorArray);
-
+                curLatency = txnCollection.getCurrentLatency();
                 // Base transaction counters
                 this.setThroughput(txnCollection.getTotalSubmittedTx(), txnCollection.getTotalSuccessfulTx(), txnCollection.getTotalFailedTx());
 
@@ -171,9 +177,9 @@ class DefaultObserver extends TestObserverInterface {
             }
 
             if (isNaN(deMax) || isNaN(deMin) || deAvg === 0) {
-                this.addLatency(0,0,0);
+                this.addLatency(0,0,0,0);
             } else {
-                this.addLatency(deMax, deMin, deAvg);
+                this.addLatency(deMax, deMin, deAvg, curLatency);
             }
         }
 
@@ -181,7 +187,56 @@ class DefaultObserver extends TestObserverInterface {
         Logger.info('[' + this.testName + ' Round ' + this.testRound + ' Transaction Info] - Submitted: ' + this.testData.summary.txSub +
         ' Succ: ' + this.testData.summary.txSucc +
         ' Fail:' +  this.testData.summary.txFail +
-        ' Unfinished:' + (this.testData.summary.txSub - this.testData.summary.txSucc - this.testData.summary.txFail));
+        ' Unfinished:' + (this.testData.summary.txSub - this.testData.summary.txSucc - this.testData.summary.txFail) +
+        ' Latency:' + this.testData.latency.value.at(-1));
+
+        //Logger.info('<<<< Observer >>>',this.testData,'UPDATES', updates);
+        this.appendMetricsFile(this.testName);
+    }
+
+    /**
+     * Append data to the metric file
+     * @param {*} testLabel test's name
+     */
+    async appendMetricsFile(testLabel){
+        const values = [new Date().toISOString(),
+            this.testData.summary.txSucc,
+            this.testData.summary.txFail,
+            (this.testData.summary.txSub - this.testData.summary.txSucc - this.testData.summary.txFail),
+            this.testData.latency.value.at(-1)
+        ];
+        // Create CSV header
+        const data = values.join(',') + '\n';
+
+        try {
+            fs.appendFile('metrics/'+testLabel+'/metrics-observer-details.csv', data, (err) => err && Logger.error(err));
+
+        } catch (error) {
+            Logger.error(`Got an error trying to append data: ${error.message}`);
+        }
+
+    }
+
+    /**
+     * Create the metric file
+     * @param {*} testLabel test's name
+     */
+    async createMetricsFile(testLabel){
+        try {
+            // Save CSV to file
+            if (!fs.existsSync('metrics')) {
+                fs.mkdirSync('metrics');
+            }
+            if (!fs.existsSync('metrics/'+testLabel)) {
+                fs.mkdirSync('metrics/'+testLabel);
+            }
+
+            const keys = ['time', 'succ', 'fail', 'unfinished', 'latency'];
+            const data = keys.join(',') + '\n';
+            fs.writeFileSync('metrics/'+testLabel+'/metrics-observer-details.csv', data);
+        } catch (error) {
+            Logger.error(`Got an error trying to create the file: ${error.message}`);
+        }
     }
 
     /**
@@ -242,6 +297,7 @@ class DefaultObserver extends TestObserverInterface {
      */
     setBenchmark(name) {
         this.testName = name;
+        this.createMetricsFile(name);
     }
 
     /**
