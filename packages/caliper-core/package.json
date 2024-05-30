@@ -1,7 +1,7 @@
 {
     "name": "@hyperledger/caliper-core",
     "description": "Core Hyperledger Caliper module, used for running performance benchmarks that interact with blockchain technologies",
-    "version": "0.5.1-unstable",
+    "version": "0.5.0",
     "repository": {
         "type": "git",
         "url": "https://github.com/hyperledger/caliper",
@@ -15,10 +15,10 @@
         "licchk": "license-check-and-add",
         "test": "npm run lint && npm run nyc",
         "lint": "npx eslint .",
-        "nyc": "nyc --reporter=text --reporter=clover mocha --recursive -t 10000"
+        "nyc": "nyc mocha --recursive -t 10000"
     },
     "engines": {
-        "node": ">=18.19.0",
+        "node": ">=14.19.0",
         "npm": ">=6.14.16"
     },
     "dependencies": {
@@ -33,6 +33,7 @@
         "nconf-yaml": "^1.0.2",
         "pidusage": "^1.1.6",
         "prom-client": "12.0.0",
+        "prometheus-gc-stats": "0.6.3",
         "ps-node": "^0.1.6",
         "table": "^4.0.1",
         "winston": "^3.2.1",

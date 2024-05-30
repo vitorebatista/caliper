@@ -20,6 +20,7 @@ const ConfigUtil = require('../../common/config/config-util');
 const Constants = require('../../common/utils/constants');
 
 const prometheusClient = require('prom-client');
+const prometheusGcStats = require('prometheus-gc-stats');
 
 const Logger = CaliperUtils.getLogger('prometheus-push-tx-observer');
 
@@ -44,6 +45,8 @@ class PrometheusPushTxObserver extends TxObserverInterface {
 
         // automatically apply default internal and user supplied labels
         this.defaultLabels = (options && options.defaultLabels) ? options.defaultLabels : {};
+        this.defaultLabels.workerIndex = this.workerIndex;
+        this.defaultLabels.roundIndex = this.currentRound;
         this.defaultLabels.roundLabel = this.roundLabel;
         this.registry.setDefaultLabels(this.defaultLabels);
 
@@ -90,6 +93,8 @@ class PrometheusPushTxObserver extends TxObserverInterface {
                 timestamps: false,
                 timeout: this.processMetricCollectInterval
             });
+            const startGcStats = prometheusGcStats(this.registry);
+            startGcStats();
         }
 
         if (!(options && options.pushUrl)) {
@@ -106,10 +111,7 @@ class PrometheusPushTxObserver extends TxObserverInterface {
      * @private
      */
     async _sendUpdate() {
-        this.prometheusPushGateway.pushAdd({jobName: 'caliper-workers', groupings: {
-            workerIndex: this.workerIndex,
-            roundIndex: this.currentRound
-        }}, function(err, _resp, _body) {
+        this.prometheusPushGateway.pushAdd({jobName: 'workers'}, function(err, _resp, _body) {
             if (err) {
                 Logger.error(`Error sending update to Prometheus Push Gateway: ${err.stack}`);
             }
@@ -124,7 +126,9 @@ class PrometheusPushTxObserver extends TxObserverInterface {
     async activate(roundIndex, roundLabel) {
         await super.activate(roundIndex, roundLabel);
 
-        // update round metadata
+        // update worker and round metadata
+        this.defaultLabels.workerIndex = this.workerIndex;
+        this.defaultLabels.roundIndex = this.currentRound;
         this.defaultLabels.roundLabel = this.roundLabel;
         this.registry.setDefaultLabels(this.defaultLabels);
 
@@ -164,12 +168,12 @@ class PrometheusPushTxObserver extends TxObserverInterface {
             for (const result of results) {
                 // pass/fail status from result.GetStatus()
                 this.counterTxFinished.labels(result.GetStatus()).inc();
-                this.histogramLatency.labels(result.GetStatus()).observe((result.GetTimeFinal() - result.GetTimeCreate()) / 1000);
+                this.histogramLatency.labels(result.GetStatus()).observe(result.GetTimeFinal() - result.GetTimeCreate());
             }
         } else {
             // pass/fail status from result.GetStatus()
             this.counterTxFinished.labels(results.GetStatus()).inc();
-            this.histogramLatency.labels(results.GetStatus()).observe((results.GetTimeFinal() - results.GetTimeCreate()) / 1000);
+            this.histogramLatency.labels(results.GetStatus()).observe((results.GetTimeFinal() - results.GetTimeCreate())/1000);
         }
     }
 

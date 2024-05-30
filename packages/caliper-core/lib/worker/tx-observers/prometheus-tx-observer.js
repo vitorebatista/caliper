@@ -21,6 +21,7 @@ const TxObserverInterface = require('./tx-observer-interface');
 const express = require('express');
 const appServer = express();
 const prometheusClient = require('prom-client');
+const prometheusGcStats = require('prometheus-gc-stats');
 
 const Logger = CaliperUtils.getLogger('prometheus-tx-observer');
 
@@ -98,6 +99,8 @@ class PrometheusTxObserver extends TxObserverInterface {
                 timestamps: false,
                 timeout: this.processMetricCollectInterval
             });
+            const startGcStats = prometheusGcStats(this.registry);
+            startGcStats();
         }
 
         // configure server for Prometheus scrapes:
@@ -162,12 +165,12 @@ class PrometheusTxObserver extends TxObserverInterface {
             for (const result of results) {
                 // pass/fail status from result.GetStatus()
                 this.counterTxFinished.labels(result.GetStatus()).inc();
-                this.histogramLatency.labels(result.GetStatus()).observe((result.GetTimeFinal() - result.GetTimeCreate()) / 1000);
+                this.histogramLatency.labels(result.GetStatus()).observe(result.GetTimeFinal() - result.GetTimeCreate());
             }
         } else {
             // pass/fail status from result.GetStatus()
             this.counterTxFinished.labels(results.GetStatus()).inc();
-            this.histogramLatency.labels(results.GetStatus()).observe((results.GetTimeFinal() - results.GetTimeCreate()) / 1000);
+            this.histogramLatency.labels(results.GetStatus()).observe((results.GetTimeFinal() - results.GetTimeCreate())/1000);
         }
     }
 }
